@@ -42,7 +42,7 @@ public class CompassMoveEvent extends BukkitRunnable {
             final boolean isStale = player == null || !player.isOnline();
             if (isStale) {
                 iterator.remove();
-                PlayersOnlyCompass.clearPlayerColor(uuid);
+                // PlayersOnlyCompass.clearPlayerColor(uuid); hmmmm...
             }
         }
     }
