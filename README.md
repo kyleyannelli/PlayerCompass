@@ -1,9 +1,10 @@
 # PlayerCompass
 ### Get a compass HUD of the players in your server, without setting anything up.
+![Example of the compass HUD](https://raw.githubusercontent.com/kyleyannelli/PlayerCompass/0338098ec050924375a513069e5c170e55fa9dee/PlayerCompassEx.png)
 
 A very simple plugin inspired by [CalebCompass](https://github.com/JamesThack/calebcompass).
 There is NO config file for this plugin. You simply put it in your `plugins` folder, and it will work for everyone in the server.
-You are told your assigned marker color upon joining the game. Look at the commands section for further info.
+You are told your assigned marker color upon joining the game. Look at the [Commands](#commands) section for further info.
 
 ## Commands
 
