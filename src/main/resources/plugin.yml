@@ -1,0 +1,11 @@
+name: PlayerCompass
+version: 1.0.0
+main: dev.kmfg.plugin.PlayerCompass
+api-version: 1.19
+description: Tracks players with a compass HUD
+author: Kyle Yannelli
+
+commands:
+  pcc:
+    description: Lists all online players and their compass marker colors.
+    usage: /pcc
