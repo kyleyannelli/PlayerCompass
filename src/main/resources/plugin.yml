@@ -1,8 +1,8 @@
 name: PlayerCompass
-version: 1.0.0
+version: 1.1.0
 main: dev.kmfg.plugin.PlayerCompass
 api-version: 1.19
-description: Tracks players with a compass HUD
+description: Tracks up to 306 players with a compass HUD
 author: Kyle Yannelli
 
 commands:

@@ -3,6 +3,7 @@ package dev.kmfg.plugin;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.boss.BossBar;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
@@ -10,19 +11,39 @@ import org.bukkit.entity.Player;
 import org.bukkit.util.Vector;
 
 import java.util.*;
+import java.util.logging.Level;
 
 public class PlayersOnlyCompass {
+    private static final char HOUSE_CHARACTER = '⌂';
+
+    private static final String CHARACTERS = "±ØCB¥DTY█AQPRXFVUO%Æ@&J▒G$MZ#KIH£L";
+
     private static final ChatColor[] COLORS = {
             ChatColor.AQUA,
             ChatColor.BLACK,
             ChatColor.DARK_BLUE,
-            ChatColor.MAGIC,
             ChatColor.DARK_GREEN,
             ChatColor.GREEN,
             ChatColor.GOLD,
+            ChatColor.DARK_GRAY,
             ChatColor.GRAY,
             ChatColor.RED,
     };
+
+    private static List<CharacterColorSet> CHARACTER_POOL = initPool();
+
+    private static List<CharacterColorSet> initPool() {
+        List<CharacterColorSet> pool = new ArrayList<CharacterColorSet>();
+        for (int caIdx = 0; caIdx < CHARACTERS.length(); caIdx++) {
+            for (int coIdx = 0; coIdx < COLORS.length; coIdx++) {
+                pool.add(new CharacterColorSet(CHARACTERS.charAt(caIdx), COLORS[coIdx]));
+            }
+        }
+        return pool;
+    }
+
+    private static final double MAX_RANGE = 1000;
+    private static final double MAX_RANGE_SQUARED = MAX_RANGE * MAX_RANGE;
 
     private static final int COMPASS_SLOTS = 40;
     private static final int SLOT_DEGREES = 360 / COMPASS_SLOTS;
@@ -32,7 +53,7 @@ public class PlayersOnlyCompass {
     private static final int SOUTH_SLOT = 0;
     private static final int WEST_SLOT = 10;
 
-    private static final Map<UUID, ChatColor> COLOR_ASSIGNMENTS = new HashMap<>();
+    private static final Map<UUID, CharacterColorSet> COLOR_ASSIGNMENTS = new HashMap<>();
     private final Player owner;
     private final BossBar bossBar;
 
@@ -46,9 +67,17 @@ public class PlayersOnlyCompass {
         this.bossBar.setVisible(true);
         this.bossBar.setProgress(1.0);
 
-        ChatColor assignedColor = getColorForUUID(owner.getUniqueId());
-        owner.sendMessage("[PlayerCompass]: " + ChatColor.GRAY + "Your compass marker color is: " + assignedColor + "X"
-                + ChatColor.RESET);
+        final CharacterColorSet ccSet = getColorForUUID(owner.getUniqueId());
+        final String ccSetStr = ccSet.toString();
+        owner.sendMessage(
+                "[PlayerCompass]: " + ChatColor.GRAY + "Your compass marker is: " + ccSetStr);
+        String publicMessage = ChatColor.YELLOW + "[PlayerCompass]: " + owner.getName()
+                + " has joined with marker " + ccSetStr + " !";
+        Bukkit.getOnlinePlayers().forEach(player -> {
+            if (!player.equals(owner)) {
+                player.sendMessage(publicMessage);
+            }
+        });
     }
 
     public BossBar getBar() {
@@ -59,11 +88,20 @@ public class PlayersOnlyCompass {
         CompassSlot[] ring = buildBaseCompassRing();
 
         for (Player p : Bukkit.getOnlinePlayers()) {
-            if (p.equals(owner)) {
+            if (dontPopulatePlayer(p)) {
                 continue;
             }
-            int slotIndex = getSlotIndex(owner.getLocation(), p.getLocation());
+            final int slotIndex = getSlotIndex(owner.getLocation(), p.getLocation());
             ring[slotIndex].occupant = p.getUniqueId();
+        }
+
+        final boolean isOverworld = owner.getWorld().getEnvironment() == World.Environment.NORMAL;
+
+        if (isOverworld) {
+            final Location respawnLocation = owner.getRespawnLocation();
+            final int houseSlotIndex = getSlotIndex(owner.getLocation(),
+                    respawnLocation == null ? owner.getWorld().getSpawnLocation() : respawnLocation);
+            ring[houseSlotIndex].cardinal = HOUSE_CHARACTER;
         }
 
         int facingSlot = normalizeSlotIndex(owner.getLocation().getYaw());
@@ -71,6 +109,27 @@ public class PlayersOnlyCompass {
         String slice = buildSlice(ring, startIndex, 21);
 
         bossBar.setTitle(slice);
+    }
+
+    /**
+     * Checks if we should populate the player or not based on
+     * - Being in the same world.
+     * - Not being yourself.
+     * - Being in range.
+     */
+    private boolean dontPopulatePlayer(Player other) {
+        if (!other.getWorld().equals(owner.getWorld())) {
+            return true;
+        }
+
+        Location otherLocation = other.getLocation();
+        Location ownerLocation = owner.getLocation();
+
+        double dx = otherLocation.getX() - ownerLocation.getX();
+        double dz = otherLocation.getZ() - ownerLocation.getZ();
+        double distanceSquared = dx * dx + dz * dz;
+
+        return distanceSquared > MAX_RANGE_SQUARED || other.equals(owner);
     }
 
     /**
@@ -126,12 +185,15 @@ public class PlayersOnlyCompass {
         StringBuilder sb = new StringBuilder(sliceLength * 3);
 
         for (int i = 0; i < sliceLength; i++) {
-            int actualIndex = (startIndex + i) % COMPASS_SLOTS;
-            CompassSlot slot = ring[actualIndex];
+            final int actualIndex = (startIndex + i) % COMPASS_SLOTS;
+            final CompassSlot slot = ring[actualIndex];
+            final boolean isHouse = slot.cardinal == HOUSE_CHARACTER;
 
-            if (slot.occupant != null) {
-                ChatColor color = getColorForUUID(slot.occupant);
-                sb.append(color).append('X').append(ChatColor.RESET);
+            if (isHouse) {
+                sb.append(ChatColor.RED).append(slot.cardinal).append(ChatColor.RESET);
+            } else if (slot.occupant != null) {
+                final CharacterColorSet ccSet = getColorForUUID(slot.occupant);
+                sb.append(ccSet.color).append(ccSet.value).append(ChatColor.RESET);
             } else if (slot.cardinal != '\0') {
                 sb.append(ChatColor.GOLD).append(slot.cardinal).append(ChatColor.RESET);
             } else {
@@ -142,21 +204,23 @@ public class PlayersOnlyCompass {
     }
 
     /**
-     * Always returns the same color for a given UUID, based on the UUID's hashCode
-     * mod the size of the COLORS array. We never remove assignments, so the same
-     * player keeps the same color for the entire server session.
-     *
-     * If you want the same color across restarts, store and load COLOR_ASSIGNMENTS
-     * from a file or database in your plugin's onEnable/onDisable.
+     * Gets CharacterColorSet for UUID based on pool availability.
+     * Persisent only for server session.
      */
-    public static ChatColor getColorForUUID(UUID uuid) {
+    public static CharacterColorSet getColorForUUID(UUID uuid) {
         if (COLOR_ASSIGNMENTS.containsKey(uuid)) {
             return COLOR_ASSIGNMENTS.get(uuid);
+        } else if (CHARACTER_POOL.isEmpty()) {
+            Bukkit.getLogger().log(Level.WARNING,
+                    "[PlayerCompass] WARNING: The number of players have exceeded the marker pool size. The pool is refilling, there will be overlaps!");
+            CHARACTER_POOL = initPool();
         }
-        int index = Math.abs(uuid.hashCode()) % COLORS.length;
-        ChatColor color = COLORS[index];
-        COLOR_ASSIGNMENTS.put(uuid, color);
-        return color;
+
+        final int poolIdx = Math.abs(uuid.hashCode()) % CHARACTER_POOL.size();
+        final CharacterColorSet ccSet = CHARACTER_POOL.get(poolIdx);
+        CHARACTER_POOL.remove(poolIdx);
+        COLOR_ASSIGNMENTS.put(uuid, ccSet);
+        return ccSet;
     }
 
     /**
@@ -172,5 +236,20 @@ public class PlayersOnlyCompass {
     private static class CompassSlot {
         char cardinal = '\0'; // 'N', 'E', 'S', or 'W' if cardinal
         UUID occupant = null; // which player (if any) occupies this slot
+    }
+
+    public static class CharacterColorSet {
+        final char value;
+        final ChatColor color;
+
+        CharacterColorSet(char value, ChatColor color) {
+            this.value = value;
+            this.color = color;
+        }
+
+        @Override
+        public String toString() {
+            return "" + this.color + this.value + ChatColor.RESET;
+        }
     }
 }
